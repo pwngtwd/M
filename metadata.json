@@ -1,0 +1,10 @@
+{
+  "name": "Gothwad Meet",
+  "description": "Real-time WebRTC video and audio meetings built for Cloudflare Pages and desktop/mobile devices.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "display-capture"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
