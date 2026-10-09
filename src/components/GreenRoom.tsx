@@ -1,11 +1,31 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Mic, MicOff, Video, VideoOff, Volume2, Shield, Settings, Copy, Check, Users, Sparkles } from 'lucide-react';
+import {
+  Mic,
+  MicOff,
+  Video,
+  VideoOff,
+  Volume2,
+  Settings,
+  Copy,
+  Check,
+  Sparkles,
+  SwitchCamera,
+  Layers,
+} from 'lucide-react';
 import { StreamAudioAnalyser } from '../utils/audioAnalyser';
+import { BackgroundEffect } from '../types/meet';
+import { VisualEffectsModal } from './VisualEffectsModal';
 
 interface Props {
   roomId: string;
   isDark: boolean;
-  onJoinMeeting: (userName: string, isMicOn: boolean, isCamOn: boolean, stream: MediaStream) => void;
+  onJoinMeeting: (
+    userName: string,
+    isMicOn: boolean,
+    isCamOn: boolean,
+    stream: MediaStream,
+    effect: BackgroundEffect
+  ) => void;
   onOpenSettings: () => void;
   onBackToHome: () => void;
 }
@@ -24,7 +44,9 @@ export const GreenRoom: React.FC<Props> = ({
   const [isCamOn, setIsCamOn] = useState(true);
   const [micLevel, setMicLevel] = useState(0);
   const [isMirror, setIsMirror] = useState(true);
-  const [isBlur, setIsBlur] = useState(false);
+  const [currentEffect, setCurrentEffect] = useState<BackgroundEffect>('none');
+  const [isEffectsModalOpen, setIsEffectsModalOpen] = useState(false);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [copied, setCopied] = useState(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
 
@@ -32,15 +54,23 @@ export const GreenRoom: React.FC<Props> = ({
   const localStreamRef = useRef<MediaStream | null>(null);
   const analyserRef = useRef<StreamAudioAnalyser | null>(null);
 
-  // Initialize media devices
+  // Initialize camera and mic preview
   useEffect(() => {
     let isCancelled = false;
 
     async function setupPreviewStream() {
       try {
         setPermissionError(null);
+        if (localStreamRef.current) {
+          localStreamRef.current.getTracks().forEach((t) => t.stop());
+        }
+
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            facingMode: facingMode,
+          },
           audio: { echoCancellation: true, noiseSuppression: true },
         });
 
@@ -55,7 +85,9 @@ export const GreenRoom: React.FC<Props> = ({
           videoRef.current.srcObject = stream;
         }
 
-        // Setup live audio analyser
+        if (analyserRef.current) {
+          analyserRef.current.destroy();
+        }
         analyserRef.current = new StreamAudioAnalyser(stream, (level) => {
           setMicLevel(level);
         });
@@ -71,15 +103,13 @@ export const GreenRoom: React.FC<Props> = ({
 
     return () => {
       isCancelled = true;
-      if (analyserRef.current) {
-        analyserRef.current.destroy();
-      }
+      if (analyserRef.current) analyserRef.current.destroy();
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((track) => track.stop());
         localStreamRef.current = null;
       }
     };
-  }, []);
+  }, [facingMode]);
 
   const toggleMic = () => {
     if (localStreamRef.current) {
@@ -97,19 +127,21 @@ export const GreenRoom: React.FC<Props> = ({
     setIsCamOn(!isCamOn);
   };
 
+  const handleFlipCamera = () => {
+    setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'));
+  };
+
   const handleJoin = (present = false) => {
     const finalName = userName.trim() || 'Guest ' + Math.floor(100 + Math.random() * 900);
     localStorage.setItem('gothwad_meet_username', finalName);
 
-    // Make sure stream tracks match mic/cam states
     if (localStreamRef.current) {
       localStreamRef.current.getAudioTracks().forEach((t) => (t.enabled = isMicOn));
       localStreamRef.current.getVideoTracks().forEach((t) => (t.enabled = isCamOn));
-      onJoinMeeting(finalName, isMicOn, isCamOn, localStreamRef.current);
+      onJoinMeeting(finalName, isMicOn, isCamOn, localStreamRef.current, currentEffect);
     } else {
-      // Create empty or placeholder stream if user has no devices
       const emptyStream = new MediaStream();
-      onJoinMeeting(finalName, isMicOn, isCamOn, emptyStream);
+      onJoinMeeting(finalName, isMicOn, isCamOn, emptyStream, currentEffect);
     }
   };
 
@@ -120,6 +152,24 @@ export const GreenRoom: React.FC<Props> = ({
     navigator.clipboard.writeText(fullLink);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Get effect filter classes
+  const getEffectFilterClasses = () => {
+    switch (currentEffect) {
+      case 'slight-blur':
+        return 'backdrop-blur-sm';
+      case 'heavy-blur':
+        return 'backdrop-blur-md';
+      case 'office':
+        return 'contrast-110 saturate-110';
+      case 'gradient':
+        return 'sepia-20 hue-rotate-15';
+      case 'beach':
+        return 'warmth contrast-105';
+      default:
+        return '';
+    }
   };
 
   return (
@@ -144,7 +194,7 @@ export const GreenRoom: React.FC<Props> = ({
               muted
               className={`w-full h-full object-cover transition-all duration-300 ${
                 !isCamOn ? 'hidden' : ''
-              } ${isMirror ? 'scale-x-[-1]' : ''} ${isBlur ? 'blur-md scale-105' : ''}`}
+              } ${isMirror && facingMode === 'user' ? 'scale-x-[-1]' : ''} ${getEffectFilterClasses()}`}
             />
 
             {/* Avatar placeholder when camera is off */}
@@ -157,7 +207,7 @@ export const GreenRoom: React.FC<Props> = ({
               </div>
             )}
 
-            {/* Audio level meter (small pill bottom-left) */}
+            {/* Audio level meter bottom-left */}
             <div className="absolute bottom-4 left-4 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-white text-xs">
               <Volume2 className="w-3.5 h-3.5 text-neutral-300" />
               <div className="w-16 h-1.5 bg-neutral-700 rounded-full overflow-hidden">
@@ -168,28 +218,33 @@ export const GreenRoom: React.FC<Props> = ({
               </div>
             </div>
 
-            {/* Mirror / Blur toggles top-right */}
+            {/* Top right actions: Effects & Flip Camera */}
             <div className="absolute top-4 right-4 flex items-center gap-2">
+              {/* Flip camera for phones */}
               <button
-                onClick={() => setIsMirror(!isMirror)}
-                className="px-2.5 py-1 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/10 text-white text-[11px] font-medium transition-colors"
-                title="Toggle Mirror Camera"
+                onClick={handleFlipCamera}
+                className="p-2 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/10 text-white transition-colors"
+                title="Flip Camera (Front/Back)"
               >
-                {isMirror ? 'Mirror: On' : 'Mirror: Off'}
+                <SwitchCamera className="w-4 h-4" />
               </button>
+
+              {/* Visual effects toggle */}
               <button
-                onClick={() => setIsBlur(!isBlur)}
-                className={`px-2.5 py-1 rounded-full backdrop-blur-md border border-white/10 text-[11px] font-medium transition-colors ${
-                  isBlur ? 'bg-[#0494f4] text-white' : 'bg-black/60 hover:bg-black/80 text-white'
+                onClick={() => setIsEffectsModalOpen(true)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full backdrop-blur-md border text-xs font-medium transition-colors ${
+                  currentEffect !== 'none'
+                    ? 'bg-[#0494f4] text-white border-[#0494f4]'
+                    : 'bg-black/60 hover:bg-black/80 border-white/10 text-white'
                 }`}
-                title="Toggle Background Blur Filter"
+                title="Apply visual effects"
               >
-                <Sparkles className="w-3 h-3 inline mr-1" />
-                Blur
+                <Sparkles className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Effects</span>
               </button>
             </div>
 
-            {/* Center-Bottom Media Control Buttons */}
+            {/* Bottom-right Camera and Mic control pills */}
             <div className="absolute bottom-4 right-4 flex items-center gap-3">
               <button
                 onClick={toggleMic}
@@ -229,7 +284,7 @@ export const GreenRoom: React.FC<Props> = ({
           <div className="space-y-2">
             <h2 className="text-2xl sm:text-3xl font-medium tracking-tight">Ready to join?</h2>
             <div className="flex items-center gap-2 text-xs text-neutral-400">
-              <span>Room code:</span>
+              <span>Meeting code:</span>
               <span className="font-mono text-[#0494f4] font-semibold">{roomId}</span>
             </div>
           </div>
@@ -243,7 +298,7 @@ export const GreenRoom: React.FC<Props> = ({
               onChange={(e) => setUserName(e.target.value)}
               placeholder="Your name"
               maxLength={30}
-              className={`w-full px-4 py-3 rounded-xl border text-sm font-medium outline-none transition-all ${
+              className={`w-full px-4 py-3 rounded-full border text-sm font-medium outline-none transition-all ${
                 isDark
                   ? 'bg-neutral-800/90 border-neutral-700 focus:border-[#0494f4] focus:ring-2 focus:ring-[#0494f4]/20 text-white'
                   : 'bg-neutral-50 border-neutral-300 focus:border-[#0494f4] focus:ring-2 focus:ring-[#0494f4]/20 text-neutral-900'
@@ -251,7 +306,7 @@ export const GreenRoom: React.FC<Props> = ({
             />
           </div>
 
-          {/* Action buttons */}
+          {/* Join buttons */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2">
             <button
               onClick={() => handleJoin(false)}
@@ -288,7 +343,7 @@ export const GreenRoom: React.FC<Props> = ({
               </button>
             </div>
             <p className="text-[11px] text-neutral-400">
-              Users on any device (phone, laptop, desktop) can join using this link directly in their browser without installing anything!
+              Users on any device can join using this link directly in their browser without installing anything.
             </p>
           </div>
 
@@ -304,11 +359,20 @@ export const GreenRoom: React.FC<Props> = ({
               className="flex items-center gap-1.5 text-neutral-400 hover:text-[#0494f4] transition-colors"
             >
               <Settings className="w-3.5 h-3.5" />
-              <span>Check audio & video</span>
+              <span>Audio &amp; video settings</span>
             </button>
           </div>
         </div>
       </div>
+
+      {/* Visual Effects Modal */}
+      <VisualEffectsModal
+        isOpen={isEffectsModalOpen}
+        onClose={() => setIsEffectsModalOpen(false)}
+        currentEffect={currentEffect}
+        onSelectEffect={(eff) => setCurrentEffect(eff)}
+        isDark={isDark}
+      />
     </div>
   );
 };

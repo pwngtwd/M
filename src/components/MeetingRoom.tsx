@@ -1,14 +1,31 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Participant, ChatMessage, FloatingReaction, WhiteboardPoint, WebRTCMessage } from '../types/meet';
+import {
+  Participant,
+  ChatMessage,
+  FloatingReaction,
+  WhiteboardPoint,
+  WebRTCMessage,
+  LiveCaption,
+  Poll,
+  HostSettings,
+  LayoutMode,
+  BackgroundEffect,
+} from '../types/meet';
 import { VideoTile } from './VideoTile';
 import { ControlBar } from './ControlBar';
 import { ChatPanel } from './ChatPanel';
 import { PeoplePanel } from './PeoplePanel';
 import { InfoPanel } from './InfoPanel';
+import { ActivitiesPanel } from './ActivitiesPanel';
 import { ReactionsOverlay } from './ReactionsOverlay';
+import { CaptionsOverlay } from './CaptionsOverlay';
 import { WhiteboardModal } from './WhiteboardModal';
+import { ChangeLayoutModal } from './ChangeLayoutModal';
+import { VisualEffectsModal } from './VisualEffectsModal';
+import { HostControlsModal } from './HostControlsModal';
 import { WebRTCManager } from '../utils/webrtc';
 import { StreamAudioAnalyser } from '../utils/audioAnalyser';
+import { LiveSpeechRecognizer } from '../utils/speechRecognition';
 import { sounds } from '../utils/sounds';
 
 interface Props {
@@ -22,6 +39,7 @@ interface Props {
   onOpenSettings: () => void;
   onOpenCloudflareGuide: () => void;
   mirrorVideo: boolean;
+  initialEffect?: BackgroundEffect;
 }
 
 const AVATAR_COLORS = [
@@ -45,6 +63,7 @@ export const MeetingRoom: React.FC<Props> = ({
   onOpenSettings,
   onOpenCloudflareGuide,
   mirrorVideo,
+  initialEffect = 'none',
 }) => {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [pinnedId, setPinnedId] = useState<string | null>(null);
@@ -52,27 +71,52 @@ export const MeetingRoom: React.FC<Props> = ({
   const [isCamOn, setIsCamOn] = useState(initialCamOn);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [isHandRaised, setIsHandRaised] = useState(false);
-  const [activePanel, setActivePanel] = useState<'none' | 'chat' | 'people' | 'info'>('none');
+  const [isCaptionsOn, setIsCaptionsOn] = useState(false);
+  const [captions, setCaptions] = useState<LiveCaption[]>([]);
+
+  // Panels & Modals
+  const [activePanel, setActivePanel] = useState<'none' | 'chat' | 'people' | 'info' | 'activities'>('none');
+  const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(false);
+  const [isLayoutModalOpen, setIsLayoutModalOpen] = useState(false);
+  const [isEffectsModalOpen, setIsEffectsModalOpen] = useState(false);
+  const [isHostControlsOpen, setIsHostControlsOpen] = useState(false);
+
+  // Layout & Effects State
+  const [currentLayout, setCurrentLayout] = useState<LayoutMode>('auto');
+  const [maxTiles, setMaxTiles] = useState(16);
+  const [currentEffect, setCurrentEffect] = useState<BackgroundEffect>(initialEffect);
+
+  // Host Settings
+  const [hostSettings, setHostSettings] = useState<HostSettings>({
+    quickAccess: true,
+    allowScreenShare: true,
+    allowChat: true,
+    allowMic: true,
+    allowCam: true,
+  });
+
+  // Messages, Polls, Notes, Reactions
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
   const [floatingReactions, setFloatingReactions] = useState<FloatingReaction[]>([]);
-  const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(false);
   const [whiteboardPoints, setWhiteboardPoints] = useState<WhiteboardPoint[]>([]);
   const [whiteboardClearTs, setWhiteboardClearTs] = useState<number>(0);
+  const [polls, setPolls] = useState<Poll[]>([]);
+  const [notesText, setNotesText] = useState('');
   const [isDemoBotActive, setIsDemoBotActive] = useState(false);
 
   const webrtcManagerRef = useRef<WebRTCManager | null>(null);
   const localStreamRef = useRef<MediaStream>(localStream);
   const screenStreamRef = useRef<MediaStream | null>(null);
   const localAnalyserRef = useRef<StreamAudioAnalyser | null>(null);
+  const speechRecognizerRef = useRef<LiveSpeechRecognizer | null>(null);
   const demoBotIntervalRef = useRef<any>(null);
 
-  // Generate distinct avatar color for local user
   const localAvatarColor = useRef(
     AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]
   ).current;
 
-  // Initialize WebRTC
+  // Initialize WebRTC and Speech Recognizer
   useEffect(() => {
     // 1. Setup local participant
     const localPart: Participant = {
@@ -80,6 +124,7 @@ export const MeetingRoom: React.FC<Props> = ({
       name: userName,
       stream: localStreamRef.current,
       isLocal: true,
+      isHost: true,
       isAudioMuted: !initialMicOn,
       isVideoMuted: !initialCamOn,
       isScreenSharing: false,
@@ -89,14 +134,36 @@ export const MeetingRoom: React.FC<Props> = ({
     };
     setParticipants([localPart]);
 
-    // 2. Setup local audio analyser for active speaker detection
+    // 2. Setup audio analyser
     localAnalyserRef.current = new StreamAudioAnalyser(localStreamRef.current, (level, isSpeaking) => {
       setParticipants((prev) =>
         prev.map((p) => (p.isLocal ? { ...p, audioLevel: level, isSpeaking } : p))
       );
     });
 
-    // 3. Initialize PeerJS WebRTC Connection
+    // 3. Setup speech recognition for live captions
+    speechRecognizerRef.current = new LiveSpeechRecognizer((transcript, isFinal) => {
+      if (!isMicOn) return;
+      const newCaption: LiveCaption = {
+        id: Math.random().toString(),
+        senderId: 'local-user',
+        senderName: userName,
+        text: transcript,
+        timestamp: Date.now(),
+        isFinal,
+      };
+
+      setCaptions((prev) => [...prev.slice(-3), newCaption]);
+
+      webrtcManagerRef.current?.broadcast({
+        type: 'LIVE_CAPTION',
+        senderId: 'local-user',
+        senderName: userName,
+        payload: newCaption,
+      });
+    });
+
+    // 4. Initialize WebRTC connection
     const manager = new WebRTCManager({
       onParticipantJoined: (newParticipant) => {
         sounds.playJoinSound();
@@ -140,6 +207,7 @@ export const MeetingRoom: React.FC<Props> = ({
 
     return () => {
       if (localAnalyserRef.current) localAnalyserRef.current.destroy();
+      if (speechRecognizerRef.current) speechRecognizerRef.current.stop();
       if (manager) manager.destroy();
       if (screenStreamRef.current) {
         screenStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -148,7 +216,16 @@ export const MeetingRoom: React.FC<Props> = ({
     };
   }, [roomId, userName]);
 
-  // Handle incoming data messages
+  // Handle live captions start/stop
+  useEffect(() => {
+    if (isCaptionsOn) {
+      speechRecognizerRef.current?.start();
+    } else {
+      speechRecognizerRef.current?.stop();
+      setCaptions([]);
+    }
+  }, [isCaptionsOn]);
+
   const handleIncomingPeerMessage = (msg: WebRTCMessage) => {
     if (msg.type === 'CHAT_MESSAGE') {
       sounds.playMessageSound();
@@ -170,15 +247,56 @@ export const MeetingRoom: React.FC<Props> = ({
       triggerFloatingReaction(msg.payload?.emoji || '👍', msg.senderName);
     } else if (msg.type === 'HAND_RAISE') {
       sounds.playHandRaiseSound();
+    } else if (msg.type === 'LIVE_CAPTION') {
+      setCaptions((prev) => [...prev.slice(-3), msg.payload]);
+    } else if (msg.type === 'POLL_CREATE') {
+      setPolls((prev) => [...prev, msg.payload]);
+      sounds.playMessageSound();
+    } else if (msg.type === 'POLL_VOTE') {
+      setPolls((prev) =>
+        prev.map((p) => {
+          if (p.id !== msg.payload.pollId) return p;
+          return {
+            ...p,
+            options: p.options.map((opt) => {
+              if (opt.id === msg.payload.optionId) {
+                return {
+                  ...opt,
+                  votes: Array.from(new Set([...opt.votes, msg.senderId])),
+                };
+              }
+              return {
+                ...opt,
+                votes: opt.votes.filter((id) => id !== msg.senderId),
+              };
+            }),
+          };
+        })
+      );
+    } else if (msg.type === 'HOST_SETTINGS_UPDATE') {
+      setHostSettings(msg.payload);
+    } else if (msg.type === 'HOST_MUTE_ALL') {
+      setIsMicOn(false);
+      localStreamRef.current.getAudioTracks().forEach((t) => (t.enabled = false));
+      setParticipants((prev) =>
+        prev.map((p) => (p.isLocal ? { ...p, isAudioMuted: true } : p))
+      );
     } else if (msg.type === 'WHITEBOARD_DRAW') {
       setWhiteboardPoints((prev) => [...prev, msg.payload]);
     } else if (msg.type === 'WHITEBOARD_CLEAR') {
       setWhiteboardClearTs(Date.now());
+    } else if (msg.type === 'NOTES_UPDATE') {
+      setNotesText(msg.payload.text || '');
     }
   };
 
   // Toggle Microphone
   const toggleMic = () => {
+    if (!hostSettings.allowMic && !participants.find((p) => p.isLocal)?.isHost) {
+      alert('The host has disabled microphone for participants.');
+      return;
+    }
+
     const newState = !isMicOn;
     setIsMicOn(newState);
     localStreamRef.current.getAudioTracks().forEach((t) => (t.enabled = newState));
@@ -205,8 +323,12 @@ export const MeetingRoom: React.FC<Props> = ({
 
   // Toggle Screen Share
   const toggleScreenShare = async () => {
+    if (!hostSettings.allowScreenShare && !participants.find((p) => p.isLocal)?.isHost) {
+      alert('The host has disabled screen sharing for participants.');
+      return;
+    }
+
     if (isScreenSharing) {
-      // Stop screen sharing -> restore camera
       if (screenStreamRef.current) {
         screenStreamRef.current.getTracks().forEach((t) => t.stop());
         screenStreamRef.current = null;
@@ -221,7 +343,6 @@ export const MeetingRoom: React.FC<Props> = ({
       );
       webrtcManagerRef.current?.sendStateUpdate({ isScreenSharing: false });
     } else {
-      // Start screen sharing
       try {
         const displayStream = await navigator.mediaDevices.getDisplayMedia({
           video: true,
@@ -231,7 +352,6 @@ export const MeetingRoom: React.FC<Props> = ({
         screenStreamRef.current = displayStream;
         setIsScreenSharing(true);
 
-        // When user clicks browser's native "Stop sharing" bar
         displayStream.getVideoTracks()[0].onended = () => {
           setIsScreenSharing(false);
           webrtcManagerRef.current?.updateLocalStream(localStreamRef.current);
@@ -261,9 +381,7 @@ export const MeetingRoom: React.FC<Props> = ({
   const toggleHandRaise = () => {
     const newState = !isHandRaised;
     setIsHandRaised(newState);
-    if (newState) {
-      sounds.playHandRaiseSound();
-    }
+    if (newState) sounds.playHandRaiseSound();
 
     setParticipants((prev) =>
       prev.map((p) => (p.isLocal ? { ...p, isHandRaised: newState } : p))
@@ -280,7 +398,7 @@ export const MeetingRoom: React.FC<Props> = ({
     }
   };
 
-  // Send Emoji Reaction
+  // Send Reaction
   const handleSendReaction = (emoji: string) => {
     triggerFloatingReaction(emoji, userName);
     webrtcManagerRef.current?.broadcast({
@@ -304,8 +422,13 @@ export const MeetingRoom: React.FC<Props> = ({
     }, 3000);
   };
 
-  // Send Chat Message
+  // Chat message
   const handleSendMessage = (text: string) => {
+    if (!hostSettings.allowChat && !participants.find((p) => p.isLocal)?.isHost) {
+      alert('The host has disabled chat for participants.');
+      return;
+    }
+
     const newMsg: ChatMessage = {
       id: Math.random().toString(),
       senderId: 'local-user',
@@ -324,14 +447,13 @@ export const MeetingRoom: React.FC<Props> = ({
       payload: { text, timestamp: Date.now() },
     });
 
-    // If Demo Bot is active, send friendly automated reply
     if (isDemoBotActive) {
       setTimeout(() => {
         const botReply: ChatMessage = {
           id: Math.random().toString(),
           senderId: 'demo-bot',
           senderName: 'Echo Bot (Demo)',
-          text: `Got your message: "${text}"! WebRTC data sync working seamlessly! 🚀`,
+          text: `Got your message: "${text}"! WebRTC data connection is live. 🚀`,
           timestamp: Date.now(),
           isLocal: false,
         };
@@ -339,6 +461,89 @@ export const MeetingRoom: React.FC<Props> = ({
         setMessages((prev) => [...prev, botReply]);
       }, 1200);
     }
+  };
+
+  // Polls
+  const handleCreatePoll = (question: string, options: string[]) => {
+    const newPoll: Poll = {
+      id: Math.random().toString(),
+      question,
+      creatorId: 'local-user',
+      creatorName: userName,
+      options: options.map((opt, i) => ({ id: `opt-${i}`, text: opt, votes: [] })),
+      isActive: true,
+      createdAt: Date.now(),
+    };
+
+    setPolls((prev) => [...prev, newPoll]);
+
+    webrtcManagerRef.current?.broadcast({
+      type: 'POLL_CREATE',
+      senderId: 'local-user',
+      senderName: userName,
+      payload: newPoll,
+    });
+  };
+
+  const handleVotePoll = (pollId: string, optionId: string) => {
+    setPolls((prev) =>
+      prev.map((p) => {
+        if (p.id !== pollId) return p;
+        return {
+          ...p,
+          options: p.options.map((opt) => {
+            if (opt.id === optionId) {
+              return {
+                ...opt,
+                votes: Array.from(new Set([...opt.votes, 'local-user'])),
+              };
+            }
+            return {
+              ...opt,
+              votes: opt.votes.filter((id) => id !== 'local-user'),
+            };
+          }),
+        };
+      })
+    );
+
+    webrtcManagerRef.current?.broadcast({
+      type: 'POLL_VOTE',
+      senderId: 'local-user',
+      senderName: userName,
+      payload: { pollId, optionId },
+    });
+  };
+
+  // Shared Notes
+  const handleChangeNotes = (text: string) => {
+    setNotesText(text);
+    webrtcManagerRef.current?.broadcast({
+      type: 'NOTES_UPDATE',
+      senderId: 'local-user',
+      senderName: userName,
+      payload: { text },
+    });
+  };
+
+  // Host Controls Update
+  const handleUpdateHostSettings = (newSettings: HostSettings) => {
+    setHostSettings(newSettings);
+    webrtcManagerRef.current?.broadcast({
+      type: 'HOST_SETTINGS_UPDATE',
+      senderId: 'local-user',
+      senderName: userName,
+      payload: newSettings,
+    });
+  };
+
+  const handleMuteAll = () => {
+    webrtcManagerRef.current?.broadcast({
+      type: 'HOST_MUTE_ALL',
+      senderId: 'local-user',
+      senderName: userName,
+      payload: {},
+    });
   };
 
   // Whiteboard broadcast handlers
@@ -360,7 +565,7 @@ export const MeetingRoom: React.FC<Props> = ({
     });
   };
 
-  // Toggle Demo Bot (Echo Participant) for solo testing
+  // Toggle Demo Bot
   const toggleDemoBot = () => {
     if (isDemoBotActive) {
       setIsDemoBotActive(false);
@@ -370,7 +575,6 @@ export const MeetingRoom: React.FC<Props> = ({
       setIsDemoBotActive(true);
       sounds.playJoinSound();
 
-      // Create a simulated canvas stream for the bot
       const canvas = document.createElement('canvas');
       canvas.width = 640;
       canvas.height = 360;
@@ -382,7 +586,6 @@ export const MeetingRoom: React.FC<Props> = ({
         ctx.fillStyle = '#1e293b';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // Draw animated concentric circle
         ctx.save();
         ctx.translate(canvas.width / 2, canvas.height / 2);
         ctx.rotate(angle);
@@ -428,7 +631,7 @@ export const MeetingRoom: React.FC<Props> = ({
     setPinnedId((prev) => (prev === id ? null : id));
   };
 
-  const togglePanel = (panel: 'chat' | 'people' | 'info') => {
+  const togglePanel = (panel: 'chat' | 'people' | 'info' | 'activities') => {
     setActivePanel((prev) => {
       const next = prev === panel ? 'none' : panel;
       if (next === 'chat') setUnreadMessagesCount(0);
@@ -436,10 +639,21 @@ export const MeetingRoom: React.FC<Props> = ({
     });
   };
 
-  // Determine participant layout
+  // Determine active speaker / spotlight
   const pinnedParticipant = participants.find((p) => p.id === pinnedId);
   const screenSharingParticipant = participants.find((p) => p.isScreenSharing);
-  const spotlightParticipant = pinnedParticipant || screenSharingParticipant;
+  const activeSpeaker = participants.find((p) => p.isSpeaking && !p.isAudioMuted);
+
+  const isSpotlightMode =
+    currentLayout === 'spotlight' ||
+    (currentLayout === 'auto' && (pinnedParticipant || screenSharingParticipant));
+
+  const isSidebarMode =
+    currentLayout === 'sidebar' ||
+    (currentLayout === 'auto' && screenSharingParticipant);
+
+  const mainTileParticipant =
+    pinnedParticipant || screenSharingParticipant || activeSpeaker || participants[0];
 
   return (
     <div
@@ -447,33 +661,46 @@ export const MeetingRoom: React.FC<Props> = ({
         isDark ? 'bg-[#212121]' : 'bg-[#181818]'
       }`}
     >
-      {/* Floating Emoji Reactions Overlay */}
+      {/* Floating Reactions */}
       <ReactionsOverlay reactions={floatingReactions} />
+
+      {/* Live Captions (CC) Overlay */}
+      <CaptionsOverlay captions={captions} isEnabled={isCaptionsOn} />
 
       {/* Main Video Stage & Side Panels Container */}
       <div className="flex-1 flex overflow-hidden p-3 sm:p-4 gap-3">
-        {/* Left/Center: Video Tiles Area */}
+        {/* Video Area */}
         <div className="flex-1 flex flex-col min-h-0 relative">
-          {spotlightParticipant ? (
-            /* Spotlight Mode (Pinned or Screen Sharing) */
+          {/* Spotlight Mode */}
+          {isSpotlightMode && mainTileParticipant ? (
+            <div className="flex-1 min-h-0 h-full max-w-5xl mx-auto w-full">
+              <VideoTile
+                participant={mainTileParticipant}
+                isPinned={pinnedId === mainTileParticipant.id}
+                onTogglePin={togglePin}
+                isDark={isDark}
+                mirrorLocal={mirrorVideo}
+              />
+            </div>
+          ) : isSidebarMode && mainTileParticipant ? (
+            /* Sidebar Mode */
             <div className="flex-1 flex flex-col lg:flex-row gap-3 min-h-0">
-              {/* Main Stage */}
               <div className="flex-1 min-h-0 h-full">
                 <VideoTile
-                  participant={spotlightParticipant}
-                  isPinned={pinnedId === spotlightParticipant.id}
+                  participant={mainTileParticipant}
+                  isPinned={pinnedId === mainTileParticipant.id}
                   onTogglePin={togglePin}
                   isDark={isDark}
                   mirrorLocal={mirrorVideo}
                 />
               </div>
 
-              {/* Sidebar Carousel of other participants */}
-              <div className="flex lg:flex-col gap-3 overflow-x-auto lg:overflow-y-auto w-full lg:w-64 max-h-48 lg:max-h-full shrink-0">
+              {/* Side strip */}
+              <div className="flex lg:flex-col gap-3 overflow-x-auto lg:overflow-y-auto w-full lg:w-64 max-h-40 lg:max-h-full shrink-0">
                 {participants
-                  .filter((p) => p.id !== spotlightParticipant.id)
+                  .filter((p) => p.id !== mainTileParticipant.id)
                   .map((p) => (
-                    <div key={p.id} className="w-48 lg:w-full h-32 shrink-0">
+                    <div key={p.id} className="w-48 lg:w-full h-28 lg:h-36 shrink-0">
                       <VideoTile
                         participant={p}
                         isPinned={pinnedId === p.id}
@@ -486,7 +713,7 @@ export const MeetingRoom: React.FC<Props> = ({
               </div>
             </div>
           ) : (
-            /* Dynamic Grid Mode */
+            /* Tiled / Auto Grid Mode */
             <div
               className={`flex-1 grid gap-3 min-h-0 w-full h-full ${
                 participants.length === 1
@@ -500,7 +727,7 @@ export const MeetingRoom: React.FC<Props> = ({
                   : 'grid-cols-2 md:grid-cols-4'
               }`}
             >
-              {participants.map((p) => (
+              {participants.slice(0, maxTiles).map((p) => (
                 <div key={p.id} className="w-full h-full min-h-[160px]">
                   <VideoTile
                     participant={p}
@@ -546,6 +773,20 @@ export const MeetingRoom: React.FC<Props> = ({
             onOpenCloudflareGuide={onOpenCloudflareGuide}
           />
         )}
+
+        {activePanel === 'activities' && (
+          <ActivitiesPanel
+            onClose={() => setActivePanel('none')}
+            onOpenWhiteboard={() => setIsWhiteboardOpen(true)}
+            polls={polls}
+            onCreatePoll={handleCreatePoll}
+            onVotePoll={handleVotePoll}
+            localUserId="local-user"
+            notesText={notesText}
+            onChangeNotes={handleChangeNotes}
+            isDark={isDark}
+          />
+        )}
       </div>
 
       {/* Floating Bottom Control Bar */}
@@ -554,10 +795,12 @@ export const MeetingRoom: React.FC<Props> = ({
         isCamOn={isCamOn}
         isScreenSharing={isScreenSharing}
         isHandRaised={isHandRaised}
+        isCaptionsOn={isCaptionsOn}
         onToggleMic={toggleMic}
         onToggleCam={toggleCam}
         onToggleScreenShare={toggleScreenShare}
         onToggleHandRaise={toggleHandRaise}
+        onToggleCaptions={() => setIsCaptionsOn((c) => !c)}
         onSendReaction={handleSendReaction}
         onLeaveCall={onLeaveCall}
         activePanel={activePanel}
@@ -566,8 +809,12 @@ export const MeetingRoom: React.FC<Props> = ({
         participantsCount={participants.length}
         onOpenWhiteboard={() => setIsWhiteboardOpen(true)}
         onOpenSettings={onOpenSettings}
+        onOpenHostControls={() => setIsHostControlsOpen(true)}
+        onOpenChangeLayout={() => setIsLayoutModalOpen(true)}
+        onOpenVisualEffects={() => setIsEffectsModalOpen(true)}
         onToggleDemoBot={toggleDemoBot}
         isDemoBotActive={isDemoBotActive}
+        roomId={roomId}
         isDark={isDark}
       />
 
@@ -579,6 +826,39 @@ export const MeetingRoom: React.FC<Props> = ({
         onBroadcastClear={handleBroadcastClear}
         incomingPoints={whiteboardPoints}
         incomingClearTimestamp={whiteboardClearTs}
+        isDark={isDark}
+      />
+
+      {/* Change Layout Modal */}
+      <ChangeLayoutModal
+        isOpen={isLayoutModalOpen}
+        onClose={() => setIsLayoutModalOpen(false)}
+        currentLayout={currentLayout}
+        onSelectLayout={(mode) => {
+          setCurrentLayout(mode);
+          setIsLayoutModalOpen(false);
+        }}
+        maxTiles={maxTiles}
+        onChangeMaxTiles={setMaxTiles}
+        isDark={isDark}
+      />
+
+      {/* Visual Effects Modal */}
+      <VisualEffectsModal
+        isOpen={isEffectsModalOpen}
+        onClose={() => setIsEffectsModalOpen(false)}
+        currentEffect={currentEffect}
+        onSelectEffect={(eff) => setCurrentEffect(eff)}
+        isDark={isDark}
+      />
+
+      {/* Host Controls Modal */}
+      <HostControlsModal
+        isOpen={isHostControlsOpen}
+        onClose={() => setIsHostControlsOpen(false)}
+        settings={hostSettings}
+        onUpdateSettings={handleUpdateHostSettings}
+        onMuteAll={handleMuteAll}
         isDark={isDark}
       />
     </div>

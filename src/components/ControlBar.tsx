@@ -17,6 +17,11 @@ import {
   Edit3,
   Bot,
   Settings,
+  Subtitles,
+  Shapes,
+  ShieldCheck,
+  Grid,
+  Sparkles,
 } from 'lucide-react';
 
 interface Props {
@@ -24,20 +29,26 @@ interface Props {
   isCamOn: boolean;
   isScreenSharing: boolean;
   isHandRaised: boolean;
+  isCaptionsOn: boolean;
   onToggleMic: () => void;
   onToggleCam: () => void;
   onToggleScreenShare: () => void;
   onToggleHandRaise: () => void;
+  onToggleCaptions: () => void;
   onSendReaction: (emoji: string) => void;
   onLeaveCall: () => void;
-  activePanel: 'none' | 'chat' | 'people' | 'info';
-  onTogglePanel: (panel: 'chat' | 'people' | 'info') => void;
+  activePanel: 'none' | 'chat' | 'people' | 'info' | 'activities';
+  onTogglePanel: (panel: 'chat' | 'people' | 'info' | 'activities') => void;
   unreadMessagesCount: number;
   participantsCount: number;
   onOpenWhiteboard: () => void;
   onOpenSettings: () => void;
+  onOpenHostControls: () => void;
+  onOpenChangeLayout: () => void;
+  onOpenVisualEffects: () => void;
   onToggleDemoBot: () => void;
   isDemoBotActive: boolean;
+  roomId: string;
   isDark: boolean;
 }
 
@@ -48,10 +59,12 @@ export const ControlBar: React.FC<Props> = ({
   isCamOn,
   isScreenSharing,
   isHandRaised,
+  isCaptionsOn,
   onToggleMic,
   onToggleCam,
   onToggleScreenShare,
   onToggleHandRaise,
+  onToggleCaptions,
   onSendReaction,
   onLeaveCall,
   activePanel,
@@ -60,8 +73,12 @@ export const ControlBar: React.FC<Props> = ({
   participantsCount,
   onOpenWhiteboard,
   onOpenSettings,
+  onOpenHostControls,
+  onOpenChangeLayout,
+  onOpenVisualEffects,
   onToggleDemoBot,
   isDemoBotActive,
+  roomId,
   isDark,
 }) => {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -83,37 +100,32 @@ export const ControlBar: React.FC<Props> = ({
     setShowEmojiPicker(false);
   };
 
+  const currentTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
   return (
     <footer className="w-full h-20 px-3 sm:px-6 flex items-center justify-between select-none relative z-30 transition-colors">
-      {/* Left section: Meeting clock & whiteboard */}
-      <div className="hidden md:flex items-center gap-2">
-        <button
-          onClick={onOpenWhiteboard}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-full text-xs font-medium border transition-colors ${
-            isDark
-              ? 'bg-neutral-800/80 border-neutral-700 hover:border-[#0494f4] text-neutral-300 hover:text-white'
-              : 'bg-neutral-100 border-neutral-300 hover:border-[#0494f4] text-neutral-700'
-          }`}
-          title="Open Collaborative Whiteboard"
-        >
-          <Edit3 className="w-3.5 h-3.5 text-[#0494f4]" />
-          <span>Whiteboard</span>
-        </button>
+      {/* Left section: Meeting Info Pill & Time */}
+      <div className="hidden lg:flex items-center gap-3">
+        <div className="flex items-center gap-2 text-xs font-medium text-neutral-300">
+          <span>{currentTime}</span>
+          <span>|</span>
+          <span className="font-mono text-neutral-400">{roomId}</span>
+        </div>
       </div>
 
       {/* Center Section: Core Audio/Video/Call Controls */}
-      <div className="flex items-center gap-2 sm:gap-3 mx-auto">
+      <div className="flex items-center gap-2 sm:gap-2.5 mx-auto">
         {/* Microphone Toggle */}
         <button
           onClick={onToggleMic}
-          className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all shadow-md ${
+          className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all shadow-md ${
             isMicOn
               ? isDark
                 ? 'bg-[#3c4043] hover:bg-[#4a4f53] text-white'
                 : 'bg-neutral-200 hover:bg-neutral-300 text-neutral-800'
               : 'bg-[#ea4335] hover:bg-[#d93025] text-white shadow-rose-900/30'
           }`}
-          title={isMicOn ? 'Turn off microphone (Ctrl+D)' : 'Turn on microphone (Ctrl+D)'}
+          title={isMicOn ? 'Turn off microphone' : 'Turn on microphone'}
         >
           {isMicOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
         </button>
@@ -121,53 +133,38 @@ export const ControlBar: React.FC<Props> = ({
         {/* Camera Toggle */}
         <button
           onClick={onToggleCam}
-          className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all shadow-md ${
+          className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all shadow-md ${
             isCamOn
               ? isDark
                 ? 'bg-[#3c4043] hover:bg-[#4a4f53] text-white'
                 : 'bg-neutral-200 hover:bg-neutral-300 text-neutral-800'
               : 'bg-[#ea4335] hover:bg-[#d93025] text-white shadow-rose-900/30'
           }`}
-          title={isCamOn ? 'Turn off camera (Ctrl+E)' : 'Turn on camera (Ctrl+E)'}
+          title={isCamOn ? 'Turn off camera' : 'Turn on camera'}
         >
           {isCamOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
         </button>
 
-        {/* Screen Sharing Toggle */}
+        {/* Live Captions (CC) Toggle */}
         <button
-          onClick={onToggleScreenShare}
-          className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full hidden xs:flex items-center justify-center transition-all shadow-md ${
-            isScreenSharing
-              ? 'bg-[#0494f4] text-white shadow-[#0494f4]/40 ring-2 ring-[#0494f4]/50'
+          onClick={onToggleCaptions}
+          className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full hidden sm:flex items-center justify-center transition-all shadow-md ${
+            isCaptionsOn
+              ? 'bg-[#0494f4] text-white ring-2 ring-[#0494f4]/40'
               : isDark
               ? 'bg-[#3c4043] hover:bg-[#4a4f53] text-white'
               : 'bg-neutral-200 hover:bg-neutral-300 text-neutral-800'
           }`}
-          title={isScreenSharing ? 'Stop presenting' : 'Present now (Share screen)'}
+          title={isCaptionsOn ? 'Turn off captions' : 'Turn on captions (CC)'}
         >
-          <MonitorUp className="w-5 h-5" />
-        </button>
-
-        {/* Hand Raise Toggle */}
-        <button
-          onClick={onToggleHandRaise}
-          className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all shadow-md ${
-            isHandRaised
-              ? 'bg-amber-500 hover:bg-amber-600 text-black shadow-amber-500/30 ring-2 ring-amber-400'
-              : isDark
-              ? 'bg-[#3c4043] hover:bg-[#4a4f53] text-white'
-              : 'bg-neutral-200 hover:bg-neutral-300 text-neutral-800'
-          }`}
-          title={isHandRaised ? 'Lower hand' : 'Raise hand'}
-        >
-          <Hand className="w-5 h-5" />
+          <Subtitles className="w-5 h-5" />
         </button>
 
         {/* Reactions Button + Popover */}
         <div className="relative">
           <button
             onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all shadow-md ${
+            className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all shadow-md ${
               showEmojiPicker
                 ? 'bg-[#0494f4] text-white'
                 : isDark
@@ -194,11 +191,41 @@ export const ControlBar: React.FC<Props> = ({
           )}
         </div>
 
+        {/* Screen Sharing Toggle */}
+        <button
+          onClick={onToggleScreenShare}
+          className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full hidden xs:flex items-center justify-center transition-all shadow-md ${
+            isScreenSharing
+              ? 'bg-[#0494f4] text-white shadow-[#0494f4]/40 ring-2 ring-[#0494f4]/50'
+              : isDark
+              ? 'bg-[#3c4043] hover:bg-[#4a4f53] text-white'
+              : 'bg-neutral-200 hover:bg-neutral-300 text-neutral-800'
+          }`}
+          title={isScreenSharing ? 'Stop presenting' : 'Present now (Share screen)'}
+        >
+          <MonitorUp className="w-5 h-5" />
+        </button>
+
+        {/* Hand Raise Toggle */}
+        <button
+          onClick={onToggleHandRaise}
+          className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all shadow-md ${
+            isHandRaised
+              ? 'bg-amber-500 hover:bg-amber-600 text-black shadow-amber-500/30 ring-2 ring-amber-400'
+              : isDark
+              ? 'bg-[#3c4043] hover:bg-[#4a4f53] text-white'
+              : 'bg-neutral-200 hover:bg-neutral-300 text-neutral-800'
+          }`}
+          title={isHandRaised ? 'Lower hand' : 'Raise hand'}
+        >
+          <Hand className="w-5 h-5" />
+        </button>
+
         {/* More options menu */}
         <div className="relative">
           <button
             onClick={() => setShowMoreMenu(!showMoreMenu)}
-            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all shadow-md ${
+            className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all shadow-md ${
               showMoreMenu
                 ? 'bg-[#0494f4] text-white'
                 : isDark
@@ -211,7 +238,8 @@ export const ControlBar: React.FC<Props> = ({
           </button>
 
           {showMoreMenu && (
-            <div className="absolute bottom-16 left-1/2 -translate-x-1/2 w-56 p-2 rounded-2xl bg-black/95 backdrop-blur-xl border border-neutral-700 shadow-2xl space-y-1 z-50 animate-fade-in text-xs text-white">
+            <div className="absolute bottom-16 left-1/2 -translate-x-1/2 w-60 p-2 rounded-2xl bg-black/95 backdrop-blur-xl border border-neutral-700 shadow-2xl space-y-1 z-50 animate-fade-in text-xs text-white">
+              {/* Whiteboard */}
               <button
                 onClick={() => {
                   onOpenWhiteboard();
@@ -220,9 +248,63 @@ export const ControlBar: React.FC<Props> = ({
                 className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-white/15 text-left"
               >
                 <Edit3 className="w-4 h-4 text-[#0494f4]" />
-                <span>Collaborative Whiteboard</span>
+                <span>Whiteboard (Jamboard)</span>
               </button>
 
+              {/* Change layout */}
+              <button
+                onClick={() => {
+                  onOpenChangeLayout();
+                  setShowMoreMenu(false);
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-white/15 text-left"
+              >
+                <Grid className="w-4 h-4 text-neutral-300" />
+                <span>Change layout</span>
+              </button>
+
+              {/* Apply visual effects */}
+              <button
+                onClick={() => {
+                  onOpenVisualEffects();
+                  setShowMoreMenu(false);
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-white/15 text-left"
+              >
+                <Sparkles className="w-4 h-4 text-purple-400" />
+                <span>Apply visual effects</span>
+              </button>
+
+              {/* Captions toggle */}
+              <button
+                onClick={() => {
+                  onToggleCaptions();
+                  setShowMoreMenu(false);
+                }}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-xl hover:bg-white/15 text-left"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Subtitles className="w-4 h-4 text-[#0494f4]" />
+                  <span>Turn on captions</span>
+                </div>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded ${isCaptionsOn ? 'bg-[#0494f4]/20 text-[#0494f4]' : 'text-neutral-500'}`}>
+                  {isCaptionsOn ? 'On' : 'Off'}
+                </span>
+              </button>
+
+              {/* Fullscreen */}
+              <button
+                onClick={() => {
+                  toggleFullscreen();
+                  setShowMoreMenu(false);
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-white/15 text-left"
+              >
+                {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+                <span>{isFullscreen ? 'Exit full screen' : 'Full screen'}</span>
+              </button>
+
+              {/* Echo bot */}
               <button
                 onClick={() => {
                   onToggleDemoBot();
@@ -239,17 +321,19 @@ export const ControlBar: React.FC<Props> = ({
                 </span>
               </button>
 
+              {/* Host controls */}
               <button
                 onClick={() => {
-                  toggleFullscreen();
+                  onOpenHostControls();
                   setShowMoreMenu(false);
                 }}
                 className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-white/15 text-left"
               >
-                {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
-                <span>{isFullscreen ? 'Exit Full Screen' : 'Full Screen'}</span>
+                <ShieldCheck className="w-4 h-4 text-amber-400" />
+                <span>Host controls</span>
               </button>
 
+              {/* Settings */}
               <button
                 onClick={() => {
                   onOpenSettings();
@@ -258,16 +342,16 @@ export const ControlBar: React.FC<Props> = ({
                 className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-white/15 text-left"
               >
                 <Settings className="w-4 h-4 text-neutral-400" />
-                <span>Audio &amp; Video Settings</span>
+                <span>Audio &amp; video settings</span>
               </button>
             </div>
           )}
         </div>
 
-        {/* Leave Call Button (Red Pill) */}
+        {/* Leave Call Button */}
         <button
           onClick={onLeaveCall}
-          className="px-5 sm:px-6 h-11 sm:h-12 rounded-full bg-[#ea4335] hover:bg-[#d93025] text-white flex items-center justify-center gap-2 shadow-lg shadow-rose-950/40 active:scale-95 transition-all"
+          className="px-5 sm:px-6 h-10 sm:h-12 rounded-full bg-[#ea4335] hover:bg-[#d93025] text-white flex items-center justify-center gap-2 shadow-lg shadow-rose-950/40 active:scale-95 transition-all"
           title="Leave call"
         >
           <PhoneOff className="w-5 h-5" />
@@ -275,12 +359,12 @@ export const ControlBar: React.FC<Props> = ({
         </button>
       </div>
 
-      {/* Right Section: Info, People, Chat */}
-      <div className="flex items-center gap-1 sm:gap-2">
+      {/* Right Section: Info, People, Chat, Activities, Host controls */}
+      <div className="flex items-center gap-1 sm:gap-1.5">
         {/* Info panel */}
         <button
           onClick={() => onTogglePanel('info')}
-          className={`p-2.5 sm:p-3 rounded-full transition-colors relative ${
+          className={`p-2.5 rounded-full transition-colors relative ${
             activePanel === 'info'
               ? 'bg-[#0494f4] text-white'
               : isDark
@@ -295,7 +379,7 @@ export const ControlBar: React.FC<Props> = ({
         {/* People panel */}
         <button
           onClick={() => onTogglePanel('people')}
-          className={`p-2.5 sm:p-3 rounded-full transition-colors relative ${
+          className={`p-2.5 rounded-full transition-colors relative ${
             activePanel === 'people'
               ? 'bg-[#0494f4] text-white'
               : isDark
@@ -313,7 +397,7 @@ export const ControlBar: React.FC<Props> = ({
         {/* Chat panel */}
         <button
           onClick={() => onTogglePanel('chat')}
-          className={`p-2.5 sm:p-3 rounded-full transition-colors relative ${
+          className={`p-2.5 rounded-full transition-colors relative ${
             activePanel === 'chat'
               ? 'bg-[#0494f4] text-white'
               : isDark
@@ -328,6 +412,30 @@ export const ControlBar: React.FC<Props> = ({
               {unreadMessagesCount}
             </span>
           )}
+        </button>
+
+        {/* Activities panel (Triangle, Square, Circle) */}
+        <button
+          onClick={() => onTogglePanel('activities')}
+          className={`p-2.5 rounded-full transition-colors relative hidden sm:flex ${
+            activePanel === 'activities'
+              ? 'bg-[#0494f4] text-white'
+              : isDark
+              ? 'hover:bg-neutral-800 text-neutral-300'
+              : 'hover:bg-neutral-200 text-neutral-700'
+          }`}
+          title="Activities (Whiteboard, Polls, Notes)"
+        >
+          <Shapes className="w-5 h-5" />
+        </button>
+
+        {/* Host controls button */}
+        <button
+          onClick={onOpenHostControls}
+          className="p-2.5 rounded-full hover:bg-neutral-800 text-neutral-300 hidden md:flex transition-colors"
+          title="Host safety controls"
+        >
+          <ShieldCheck className="w-5 h-5" />
         </button>
       </div>
     </footer>

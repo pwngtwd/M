@@ -3,6 +3,7 @@ export interface Participant {
   name: string;
   stream?: MediaStream;
   isLocal: boolean;
+  isHost?: boolean;
   isAudioMuted: boolean;
   isVideoMuted: boolean;
   isScreenSharing: boolean;
@@ -29,6 +30,43 @@ export interface FloatingReaction {
   x: number;
 }
 
+export interface LiveCaption {
+  id: string;
+  senderId: string;
+  senderName: string;
+  text: string;
+  timestamp: number;
+  isFinal: boolean;
+}
+
+export interface PollOption {
+  id: string;
+  text: string;
+  votes: string[]; // array of participant IDs
+}
+
+export interface Poll {
+  id: string;
+  question: string;
+  creatorId: string;
+  creatorName: string;
+  options: PollOption[];
+  isActive: boolean;
+  createdAt: number;
+}
+
+export interface HostSettings {
+  quickAccess: boolean;
+  allowScreenShare: boolean;
+  allowChat: boolean;
+  allowMic: boolean;
+  allowCam: boolean;
+}
+
+export type LayoutMode = 'auto' | 'tiled' | 'spotlight' | 'sidebar';
+
+export type BackgroundEffect = 'none' | 'slight-blur' | 'heavy-blur' | 'office' | 'gradient' | 'beach';
+
 export interface WebRTCMessage {
   type:
     | 'USER_INFO'
@@ -36,16 +74,20 @@ export interface WebRTCMessage {
     | 'CHAT_MESSAGE'
     | 'EMOJI_REACTION'
     | 'HAND_RAISE'
+    | 'LIVE_CAPTION'
+    | 'POLL_CREATE'
+    | 'POLL_VOTE'
+    | 'HOST_SETTINGS_UPDATE'
+    | 'HOST_MUTE_ALL'
     | 'WHITEBOARD_DRAW'
     | 'WHITEBOARD_CLEAR'
+    | 'NOTES_UPDATE'
     | 'PEER_DISCOVERY'
     | 'PING';
   payload: any;
   senderId: string;
   senderName: string;
 }
-
-export type MeetingViewMode = 'grid' | 'spotlight' | 'sidebar';
 
 export interface DeviceSettings {
   audioInputId: string;

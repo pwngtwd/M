@@ -74,17 +74,21 @@ export default function App() {
     setCurrentScreen('green-room');
   };
 
+  const [selectedEffect, setSelectedEffect] = useState<any>('none');
+
   // Handle joining from GreenRoom
   const handleJoinMeeting = (
     name: string,
     mic: boolean,
     cam: boolean,
-    stream: MediaStream
+    stream: MediaStream,
+    effect: any = 'none'
   ) => {
     setUserName(name);
     setIsMicOn(mic);
     setIsCamOn(cam);
     setLocalStream(stream);
+    setSelectedEffect(effect);
     setCurrentScreen('meeting');
   };
 
@@ -166,6 +170,7 @@ export default function App() {
             onOpenSettings={() => setIsSettingsOpen(true)}
             onOpenCloudflareGuide={() => setIsCloudflareGuideOpen(true)}
             mirrorVideo={mirrorVideo}
+            initialEffect={selectedEffect}
           />
         )}
 
